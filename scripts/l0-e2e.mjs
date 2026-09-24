@@ -7,9 +7,24 @@
  */
 import { findMinecraftWindow, listWindows, captureWindow, scoreWindow, restoreOnly } from '../src/window.ts';
 import { restoreAndFocus } from '../src/focus.ts';
+import { DEFAULT_CAPTURE_POLICY, checkCapture, commitCapture, newCaptureState, remaining } from '../src/capture-policy.ts';
 
 function line(s) {
   console.log('  ' + s);
+}
+
+// ── 需求验证 + 次数限制（防 AI 刷图烧 token / 卡顿）──────────────────────
+const purpose = process.argv.slice(2).join(' ').trim();
+let capState = newCaptureState();
+{
+  const d = checkCapture(DEFAULT_CAPTURE_POLICY, capState, Date.now(), purpose);
+  if (!d.ok) {
+    line(`⛔ 不允许截图：${d.message}${d.retryAfterMs ? `（${d.retryAfterMs}ms 后可试）` : ''}`);
+    line(`   用法: node --experimental-strip-types scripts/l0-e2e.mjs "截图目的（必填）"`);
+    process.exit(4);
+  }
+  const r = remaining(DEFAULT_CAPTURE_POLICY, capState, Date.now());
+  line(`截图许可: purpose="${purpose}" · 剩余 会话${r.sessionLeft}/小时${r.hourLeft} 次（软阈值 ${r.warnThreshold}/h）`);
 }
 
 const all = await listWindows();
@@ -76,6 +91,7 @@ if (!win.foreground) {
 }
 
 const cap = await captureWindow(win, true);
+if (cap.ok) capState = commitCapture(capState, Date.now(), purpose);
 line(`抓图: ${JSON.stringify(cap)}`);
 if (!cap.ok) process.exit(3);
 line(`✅ 成功：${cap.path} (${cap.width}x${cap.height}, ${cap.bytes}B)`);
