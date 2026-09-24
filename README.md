@@ -124,6 +124,96 @@ node --experimental-strip-types --test test/
 
 ---
 
+## L0 窗口层：看画面 + 自动转前台
+
+**不依赖 mod**，装上即可用（默认关：需 `window.enabled=true`）。
+
+### 窗口识别（评分制，**不靠标题**）
+
+dev 环境 / 整合包 / 启动器**都会自定义窗口标题** ⇒ 标题不可作硬判据。改用评分（`src/window.ts`）：
+
+| 判据 | 分 | 说明 |
+|---|---|---|
+| **窗口类名 `GLFW*` / `LWJGL`** | **+50** | **标题无关**（MC 必用 GLFW） |
+| **进程命令行含 MC 特征**（`net.minecraft.client.main.Main` · `-Dfml.modFolders` · `--fml.forgeVersion` · `fabric` · `-Dminecraft.`） | **+40** | **标题无关**（官方/Forge/NeoForge/Fabric 都认） |
+| 进程名 `java` / `javaw` | +10 | 辅助 |
+| 标题含 `minecraft` | +20 | **仅加分**（改名后仍能靠上面两条命中） |
+
+取最高分且 **≥ 60** 才认；**保留判据明细**（命令/日志可查"为什么选它"）。实测：MC = **120**，浏览器（标题含 Minecraft 的网页）= 0。
+
+### 自动转前台（`src/focus.ts`）
+
+截图（`CopyFromScreen`）要求窗口**在前台可见**，所以需要把 MC 调到前台。**Windows 有前台锁**（后台进程不被允许抢焦点），实测解法：
+
+```
+① ShowWindow(SW_RESTORE)           若最小化先恢复
+② keybd_event(VK_MENU) 按一下 ALT    ← ⭐ 关键：模拟一次真实输入以取得"前台权限"
+③ SetForegroundWindow              实测 ok=true（单独用它或 AttachThreadInput 会被拒）
+④ 兜底：SwitchToThisWindow → 最小化+恢复 → TOPMOST 弹一下
+```
+
+### ⚠️ 自动化操作期间请**不要**操作键盘鼠标
+
+> 这两件事必须**串行**，不能同时：
+> - 你的按键会与自动化输入**交错** ⇒ 结果不可预测（点错按钮、进错界面）
+> - 反过来，自动化发给 MC 的按键也会**打断你正在做的事**
+> - 需要自己接手时：**先让自动化停下**（停用 `window.enabled` 或 `/mc-bridge reload` 前先关），再操作
+> - 本插件**只按需短暂抢前台**（截图/取状态后即结束），**不会长期占用**你的输入
+
+### 命令
+
+```
+/mc-bridge status    # 状态 / 收发计数 / endpoint（token 打码）
+/mc-bridge reload    # 重连
+/mc-bridge window    # 找 MC 窗口（标题/尺寸/hwnd/是否前台 + 判据明细）
+/mc-bridge shot      # 截一张（需 window.enabled=true）
+```
+
+### 开发脚本（自主看界面 / 驱动 UI）
+
+```bash
+# 找窗口 → 自动转前台 → 截图（**必须给目的**，见下方截图策略）
+node --experimental-strip-types scripts/l0-e2e.mjs "检查宠物是否渲染在右下角"
+
+# 窗口内坐标点击（坐标为相对窗口的像素，与截图 1:1）
+node --experimental-strip-types scripts/click.mjs 435 233 "点击单人游戏"
+```
+
+**已知限制（均为实测）**：
+- **鼠标合成点击进不到 MC**（`mouse_event` 被忽略）⇒ **UI 自动化以键盘为主**（`Tab` 聚焦 + `Enter` 激活）
+- **必须先看控件状态**：disabled 按钮吃掉的按键**无任何反馈**，会把"什么都没发生"误当成"做成了" ⇒ 每次动作后**看图确认目标控件**（灰/亮、界面是否变化）
+- 校验与操作要**原子**（同一进程/同一调用内完成），否则中间会被抢焦点（TOCTOU）
+
+---
+
+## 截图策略（需求验证 + 限流）
+
+`src/capture-policy.ts` —— 防"跑飞式刷图"（烧 token + `CopyFromScreen` 抓游戏窗口造成卡顿），**不是**限制正常调试：
+
+| 机制 | 默认 | 说明 |
+|---|---|---|
+| **需求验证** | purpose 必填（≥4 字） | 逼"为什么要看"；**无目的直接拒** |
+| 最小间隔 | **1s** | 防连环截图（真正的卡顿来源） |
+| 同目的去重 | **10s** | 防"同一个检查反复截"（刷图主要形态） |
+| 软警告 | **120/小时** | **只提示，不停机** |
+| 硬保护 | **600/小时 · 5000/会话** | 只拦真正的跑飞 |
+
+> 口径：修 UI bug 时一小时截几十上百张是**正常需求** ⇒ 额度按"够干活"定，不按"防干活"定。
+> 回归用例锁住：**一小时 200 次必须全部放行，只出 warning**。
+
+---
+
+## 开发与测试
+
+```bash
+# 单测（Node ≥22 原生跑 TS，无需安装依赖）
+node --experimental-strip-types --test test/     # 58 用例
+
+# 联调测试会起 mock mod 桥 —— **只用 3082 端口**，并在 finally 里强制 close()
+```
+
+**边界**：L0 的 PowerShell 调用仅供开发期"看 + 驱动 UI"；**AI 工具集走 mod 侧进程内**（不依赖窗口前台、不用 OS 输入注入 —— 见 `docs/BACKGROUND-CAPTURE.md` 的取证）。
+
 ## 许可证
 
 MIT（本插件）。它连接的 MC 侧 mod 见 [dshpet-mc](https://github.com/xiaozhaoz1/dshpet-mc)（其**调试动画素材**来自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)，遵循上游条款：允许开源使用、禁止商用）。
