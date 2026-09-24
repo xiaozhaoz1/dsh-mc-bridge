@@ -214,6 +214,20 @@ node --experimental-strip-types --test test/     # 58 用例
 
 **边界**：L0 的 PowerShell 调用仅供开发期"看 + 驱动 UI"；**AI 工具集走 mod 侧进程内**（不依赖窗口前台、不用 OS 输入注入 —— 见 `docs/BACKGROUND-CAPTURE.md` 的取证）。
 
+> ⚠️ **进度标注**：`ui` 工具组（`mc_ui_screen` / `mc_ui_click` / `mc_enter_world`，走 mod 侧 `widget.isActive()` + `onPress()`，**不靠看图判灰**）**规划中 · S1a 阶段实现**。
+> 当前 L0 的开发期自动化（截图 + 键盘导航）**只用于"看"和调试**，不作为 AI 的正式工具。
+
+### 当前实现进度（诚实标注）
+
+| 能力 | 状态 |
+|---|---|
+| L0 窗口识别 + 自动转前台 + 截图 | ✅ **已实现**（含 58 单测 + 端到端实测） |
+| 截图策略（需求验证 + 限流） | ✅ 已实现 |
+| L1 桥客户端（SSE + POST + 退避 + 心跳） | ✅ **代码完成**，mock 联调通过；⏳ **等 mod 侧 S1a** 才能真连 |
+| 工具注册（`mc_*` + 三道闸） | ✅ 代码完成；mod 未连接时降级为内置静态清单 |
+| **`ui` 工具组**（AI 操作界面/进世界） | ⏳ **规划中 · S1a** |
+| 玩家动作工具（`move`/`mine`/`climbTo`…） | ⏳ **规划中 · S1a/A**（依赖 mod 侧进程内实现） |
+
 ## 许可证
 
 MIT（本插件）。它连接的 MC 侧 mod 见 [dshpet-mc](https://github.com/xiaozhaoz1/dshpet-mc)（其**调试动画素材**来自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)，遵循上游条款：允许开源使用、禁止商用）。
