@@ -1,0 +1,55 @@
+# ============================================================================
+# dsh-mc-bridge 的挂载声明（bundle patch）
+# ============================================================================
+#
+# 【这是什么】
+#   DSH 启动时按 bundle 层栈把各插件的 patch 叠起来组成配置树；本文件是该层内容。
+#
+# 【字段】
+#   insert: 往配置树插入插件行（entry）
+#     - id   : 行标识（唯一；用户的 profile patch 按它覆盖，如 disabled/config）
+#     - name : 模块名 ⇒ 解析到本包入口 lib/index.js（宿主半侧）
+#     - config: 插件配置（Cordis 注入给 apply(ctx, config) 的第二参）
+#
+# 【注意】
+#   本插件为“纯后端”：不声明 dsh.client、不暴露 ./client ⇒ 无浏览器半侧、零渲染。
+#   用户若要改配置：在 ~/.dsh/profiles/web/cordis.patch.yml 里按 id 覆盖（见 README）。
+#
+# ============================================================================
+
+- insert:
+    - id: mc-bridge
+      name: 'dsh-mc-bridge'
+      config:
+        # ── 连接（L1：mod 桥）────────────────────────────────────────────
+        endpoint: 'http://127.0.0.1:25580'
+        token: ''
+        enabled: false # 默认关：装上不主动连（opts-in）
+        readOnly: true # 默认只读：只收状态，不下发动作
+
+        # ── 授权（哪些动作层允许下发）────────────────────────────────────
+        allowTiers: [] # 例: ['act.tier1']；tier2（挖/放/攻击）需显式加
+
+        # ── 重连与心跳 ──────────────────────────────────────────────────
+        reconnectMinMs: 2000
+        reconnectMaxMs: 30000
+        heartbeatTimeoutMs: 45000
+
+        # ── 限流（每次动作/工具调用的最小间隔）──────────────────────────
+        rateLimit:
+          say: 5000
+          anim: 2000
+          actTier1: 2000
+          screenshot: 30000
+
+        # ── L0：窗口层（不依赖 mod，找 MC 窗口/截图/简单输入）──────────
+        window:
+          enabled: false
+          captureIntervalMs: 5000
+          allowInputInjection: false # 简单盲操作（按键/鼠标）
+          requireForeground: true # 抓图前校验前台窗口 == MC 窗口
+
+        # ── 审计 ────────────────────────────────────────────────────────
+        audit:
+          enabled: true
+          logToFile: false
