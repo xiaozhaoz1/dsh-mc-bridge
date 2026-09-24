@@ -42,40 +42,47 @@ public class Focus {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
-  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
-  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool attach);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, IntPtr extra);
+  [DllImport("user32.dll")] public static extern bool SwitchToThisWindow(IntPtr h, bool alt);
+  public const byte VK_MENU = 0x12;
+  public const uint KEYEVENTF_KEYUP = 0x0002;
+  public static readonly uint SWP_NOMOVE = 0x0002, SWP_NOSIZE = 0x0001, SWP_SHOWWINDOW = 0x0040;
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
   public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
   public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
-  public static readonly uint SWP_NOMOVE = 0x0002, SWP_NOSIZE = 0x0001, SWP_SHOWWINDOW = 0x0040;
   public static string Go(IntPtr target) {
-    // ① 恢复（最小化 ⇒ 还原）
-    ShowWindow(target, 9);
-    // ② 挂输入队列绕过前台锁
-    var fg = GetForegroundWindow();
-    uint dummy;
-    uint fgThread = fg == IntPtr.Zero ? 0 : GetWindowThreadProcessId(fg, IntPtr.Zero);
-    uint targetThread = GetWindowThreadProcessId(target, IntPtr.Zero);
-    uint myThread = GetCurrentThreadId();
-    bool ok = false;
-    if (fgThread != 0 && fgThread != myThread) AttachThreadInput(fgThread, myThread, true);
-    if (targetThread != 0 && targetThread != myThread) AttachThreadInput(targetThread, myThread, true);
-    try {
-      ok = SetForegroundWindow(target);
-      if (!ok) {
-        // 兜底：TOPMOST 弹一下再取消，强制激活
-        SetWindowPos(target, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-        SetWindowPos(target, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-        ok = SetForegroundWindow(target);
-        BringWindowToTop(target);
-      }
-    } finally {
-      if (targetThread != 0 && targetThread != myThread) AttachThreadInput(targetThread, myThread, false);
-      if (fgThread != 0 && fgThread != myThread) AttachThreadInput(fgThread, myThread, false);
+    // ① 若最小化先恢复
+    if (IsIconic(target)) { ShowWindow(target, 9); System.Threading.Thread.Sleep(120); }
+    // ② ⭐ ALT 键技巧：模拟一次真实用户输入，取得"前台权限"
+    //    实测：单独用 AttachThreadInput/SetForegroundWindow 会被 Windows 拒绝；
+    //    先发一个 ALT 键（keybd_event）后 SetForegroundWindow 即成功（实测 ok=True）。
+    keybd_event(VK_MENU, 0, 0, IntPtr.Zero);
+    keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, IntPtr.Zero);
+    System.Threading.Thread.Sleep(90);
+    bool api = SetForegroundWindow(target);
+    if (GetForegroundWindow() != target) {
+      // ③ 兜底一：SwitchToThisWindow（未文档化但常有效）
+      SwitchToThisWindow(target, true);
+      System.Threading.Thread.Sleep(220);
+    }
+    if (GetForegroundWindow() != target) {
+      // ④ 兜底二：最小化→恢复（强制激活）
+      ShowWindow(target, 6);
+      System.Threading.Thread.Sleep(160);
+      ShowWindow(target, 9);
+      System.Threading.Thread.Sleep(260);
+      SetForegroundWindow(target);
+    }
+    if (GetForegroundWindow() != target) {
+      // ⑤ 兜底三：TOPMOST 弹一下再取消
+      SetWindowPos(target, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+      SetWindowPos(target, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+      SetForegroundWindow(target);
+      BringWindowToTop(target);
     }
     var now = GetForegroundWindow();
-    return (now == target ? "OK" : "FAILED") + "|" + now + "|" + target + "|" + (ok ? "1" : "0");
+    return (now == target ? "OK" : "FAILED") + "|" + now + "|" + target + "|" + (api ? "1" : "0");
   }
 }
 '@
