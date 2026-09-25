@@ -19,6 +19,7 @@ import { promisify } from 'node:util';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { KEEP_SCREENSHOTS, enforceRetention } from './screenshot-store.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -259,7 +260,16 @@ Write-Output 'OK'
     );
     if (!stdout.includes('OK')) return { ok: false, error: '抓图脚本未返回 OK', detail: stdout.trim() };
     const buf = await readFile(path);
-    return { ok: true, path, bytes: buf.length, width: expected.width, height: expected.height };
+    // 留存策略：只保留最新 N 张（默认 5）—— 截图是临时诊断产物，防无限累积
+    const plan = await enforceRetention(dir, KEEP_SCREENSHOTS);
+    return {
+      ok: true,
+      path,
+      bytes: buf.length,
+      width: expected.width,
+      height: expected.height,
+      detail: plan.remove.length ? `已清理旧截图 ${plan.remove.length} 张（保留最新 ${KEEP_SCREENSHOTS}）` : undefined,
+    };
   } catch (e) {
     const err = e as { message?: string; stderr?: string; code?: number };
     return {
